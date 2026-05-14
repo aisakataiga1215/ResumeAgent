@@ -15,6 +15,7 @@ data/
 .DS_Store
 
 chroma_db/
+data/
 *.text
 .env
 md5.text

@@ -11,7 +11,7 @@
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
 │  │ Semantic │  │ Episodic │  │   Procedural     │ │
 │  │ Memory   │  │ Memory   │  │   Memory         │ │
-│  │ (Chroma) │  │ (SQLite) │  │ (System Prompt)  │ │
+│  │ (Qdrant) │  │ (SQLite) │  │ (System Prompt)  │ │
 │  └────┬─────┘  └────┬─────┘  └────────┬─────────┘ │
 │       │              │                 │           │
 │  ┌────┴──────────────┴─────────────────┴─────────┐ │
@@ -32,7 +32,7 @@
 
 | 类型 | 存储 | 实现 | 作用 |
 |------|------|------|------|
-| **Semantic** (知识) | Chroma 向量库 | `src/memory.py` | 简历写作最佳实践、STAR 模板、行业关键词 → Tool 检索 |
+| **Semantic** (知识) | Qdrant 向量库 | `src/memory.py` | 简历写作最佳实践、STAR 模板、行业关键词 → Tool 检索 |
 | **Episodic** (经历) | SQLite | `src/memory.py` → checkpointer | 记住用户历史分析、JD 偏好 |
 | **Procedural** (流程) | System Prompt | `src/config.py` | 分析步骤定义、多模式切换指令 |
 
@@ -58,7 +58,7 @@
 ### RAG 检索 (`src/agent.py` ← `src/memory.py`)
 | Tool | 功能 |
 |------|------|
-| `search_resume_knowledge` | 从 Chroma 知识库检索简历写作最佳实践 |
+| `search_resume_knowledge` | 从 Qdrant 知识库检索简历写作最佳实践 |
 
 ### JD 搜索 (`src/tools_search.py`)
 | Tool | 功能 |
@@ -80,7 +80,7 @@ ResumeAgent/
 ├── src/
 │   ├── config.py             # 统一配置 + .env 加载
 │   ├── agent.py              # Agent 核心（10 tools + checkpointer）
-│   ├── memory.py             # Chroma KB + SQLite checkpointer
+│   ├── memory.py             # Qdrant KB + SQLite checkpointer
 │   ├── pdf_parser.py         # PDF 文本提取
 │   ├── tools_search.py       # JD 搜索工具
 │   ├── tools_github.py       # GitHub API 工具
@@ -112,7 +112,7 @@ streamlit run app.py
 
 - **Agent 框架**: LangGraph (`create_agent`)
 - **LLM**: DeepSeek (`deepseek-chat`)
-- **Memory**: Chroma (向量知识库) + SQLite (对话历史)
+- **Memory**: Qdrant (向量知识库) + SQLite (对话历史)
 - **Embedding**: `all-MiniLM-L6-v2` (本地，无需 API)
 - **搜索**: DuckDuckGo (免费)
 - **GitHub**: PyGithub

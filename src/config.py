@@ -24,8 +24,8 @@ scoring_weights = {
 }
 
 # ── Memory ──
-chroma_kb_path = "./data/chroma_kb"
-chroma_kb_collection = "resume_knowledge"
+qdrant_kb_path = "./data/qdrant_kb"
+qdrant_kb_collection = "resume_knowledge"
 sqlite_db_path = "./data/agent_memory.db"
 
 # ── GitHub (Personal Access Token) ──

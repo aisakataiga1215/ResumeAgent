@@ -1,24 +1,25 @@
 """
-Memory 管理：Semantic Memory (Chroma) + Episodic Memory (SQLite)
+Memory 管理：Semantic Memory (Qdrant) + Episodic Memory (SQLite)
 
-- Semantic: Chroma 向量库存储简历写作知识，Agent 通过 search_resume_knowledge tool 检索
+- Semantic: Qdrant 向量库存储简历写作知识，Agent 通过 search_resume_knowledge tool 检索
+  Qdrant vs Chroma 选型原因：Payload 索引过滤、量化压缩、嵌入式/服务模式统一 API、Rust 原生性能
 - Episodic: LangGraph SqliteSaver 持久化对话历史，记住用户偏好
 """
 import os
 import json
-from langchain_chroma import Chroma
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from src.config import chroma_kb_path, chroma_kb_collection, sqlite_db_path
+from src.config import qdrant_kb_path, qdrant_kb_collection, sqlite_db_path
 
-# ═══════════════════════════════════════════
-# Semantic Memory — Chroma 知识库
-# ═══════════════════════════════════════════
+# 本地 embedding 模型 (384 维)
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+VECTOR_SIZE = 384
 
 # 种子知识数据（中文简历写作指南 + STAR 模板 + 技术栈关键词）
 SEED_KNOWLEDGE = [
-    # ── 简历写作最佳实践 ──
     {
         "content": "简历技能部分要点：按熟练度分级（精通/熟练/了解），与JD关键词一一对应。"
                   "技术栈按类别分组（后端/前端/数据库/运维/工具），每组3-5项。"
@@ -49,7 +50,6 @@ SEED_KNOWLEDGE = [
         "category": "best_practice",
         "tags": "结构 格式 ATS",
     },
-    # ── STAR 模板 ──
     {
         "content": "STAR 项目描述模板：基于[技术栈]开发了[系统名称]，解决了[业务痛点]。"
                   "承担[角色]，负责[核心模块]。通过[技术方案]，实现了[量化成果]。"
@@ -65,7 +65,6 @@ SEED_KNOWLEDGE = [
         "category": "template",
         "tags": "GitHub STAR 开源",
     },
-    # ── 行业关键词 ──
     {
         "content": "后端开发 JD 高频关键词：Java, Spring Boot, MyBatis, Go, Gin, Python, Django, FastAPI, "
                   "MySQL, PostgreSQL, Redis, MongoDB, Elasticsearch, Kafka, RabbitMQ, gRPC, RESTful API, "
@@ -99,44 +98,61 @@ SEED_KNOWLEDGE = [
 
 
 class KnowledgeBase:
-    """Semantic Memory: Chroma 向量知识库"""
+    """Semantic Memory: Qdrant 向量知识库"""
 
     def __init__(self):
-        os.makedirs(chroma_kb_path, exist_ok=True)
-        self.embedding = SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
-        self.store = Chroma(
-            collection_name=chroma_kb_collection,
-            embedding_function=self.embedding,
-            persist_directory=chroma_kb_path,
-        )
+        os.makedirs(qdrant_kb_path, exist_ok=True)
+        self.embedder = SentenceTransformer(EMBEDDING_MODEL)
+        self.client = QdrantClient(path=qdrant_kb_path)
+
+        if not self.client.collection_exists(qdrant_kb_collection):
+            self.client.create_collection(
+                collection_name=qdrant_kb_collection,
+                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            )
 
     def seed_if_empty(self):
         """如果知识库为空，写入种子数据"""
-        existing = self.store.get()
-        if existing and existing.get("ids") and len(existing["ids"]) > 0:
-            return  # 已有数据
+        count = self.client.count(qdrant_kb_collection).count
+        if count > 0:
+            return
 
         texts = [item["content"] for item in SEED_KNOWLEDGE]
-        metadatas = [{"category": item["category"], "tags": item["tags"]} for item in SEED_KNOWLEDGE]
-        self.store.add_texts(texts, metadatas=metadatas)
-        print(f"[KnowledgeBase] 已写入 {len(texts)} 条种子知识")
+        embeddings = self.embedder.encode(texts, show_progress_bar=False).tolist()
+
+        points = [
+            PointStruct(
+                id=i,
+                vector=embeddings[i],
+                payload={
+                    "content": SEED_KNOWLEDGE[i]["content"],
+                    "category": SEED_KNOWLEDGE[i]["category"],
+                    "tags": SEED_KNOWLEDGE[i]["tags"],
+                }
+            )
+            for i in range(len(texts))
+        ]
+        self.client.upsert(collection_name=qdrant_kb_collection, points=points)
+        print(f"[KnowledgeBase] 已写入 {len(texts)} 条种子知识到 Qdrant")
 
     def search(self, query: str, k: int = 3) -> str:
         """检索相关知识，返回 JSON 字符串"""
-        docs = self.store.similarity_search(query, k=k)
-        if not docs:
-            return json.dumps({"results": [], "query": query}, ensure_ascii=False)
+        query_vec = self.embedder.encode(query).tolist()
+        results = self.client.query_points(
+            collection_name=qdrant_kb_collection,
+            query=query_vec,
+            limit=k,
+        )
 
-        results = []
-        for d in docs:
-            results.append({
-                "content": d.page_content[:300],
-                "category": d.metadata.get("category", ""),
-                "tags": d.metadata.get("tags", ""),
+        rlist = []
+        for r in results.points:
+            rlist.append({
+                "content": r.payload.get("content", "")[:300],
+                "category": r.payload.get("category", ""),
+                "tags": r.payload.get("tags", ""),
+                "score": round(r.score, 4),
             })
-        return json.dumps({"results": results, "query": query}, ensure_ascii=False)
+        return json.dumps({"results": rlist, "query": query}, ensure_ascii=False)
 
 
 # ═══════════════════════════════════════════
@@ -153,7 +169,7 @@ def get_checkpointer() -> SqliteSaver:
 # 自测
 # ═══════════════════════════════════════════
 if __name__ == "__main__":
-    print("=== Semantic Memory Test ===")
+    print("=== Semantic Memory Test (Qdrant) ===")
     kb = KnowledgeBase()
     kb.seed_if_empty()
     result = kb.search("STAR法则怎么写项目经历")
