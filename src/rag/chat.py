@@ -1,6 +1,6 @@
 import streamlit as  st
-from rag import RagService
-import config_data as config
+from src.rag.rag_chain import RagService
+from src.rag import config_data as config
 import time
 
 # 标题

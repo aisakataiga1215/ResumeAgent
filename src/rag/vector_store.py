@@ -1,5 +1,5 @@
 from langchain_chroma import Chroma
-import config_data as config
+from src.rag import config_data as config
 
 class VectorStoreService(object):
     def __init__(self,embedding):

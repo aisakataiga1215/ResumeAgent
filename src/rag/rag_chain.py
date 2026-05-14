@@ -1,10 +1,10 @@
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableWithMessageHistory, RunnableLambda
-from file_history_store import get_history
-from vector_stores import VectorStoreService
+from src.rag.history import get_history
+from src.rag.vector_store import VectorStoreService
 from langchain_community.embeddings import DashScopeEmbeddings
-import config_data as config
+from src.rag import config_data as config
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_models.tongyi import ChatTongyi
 

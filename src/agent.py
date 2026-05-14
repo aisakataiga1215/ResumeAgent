@@ -1,27 +1,33 @@
 import re
 import json
 import os
-from typing import Callable
+from typing import Generator, Any
 
 from langchain_core.tools import tool
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
-import config_data as config
+from src.config import (
+    deepseek_model_name,
+    deepseek_api_base,
+    scoring_weights,
+    agent_max_iterations,
+    resume_agent_system_prompt,
+)
 
 
 def _get_llm():
-    """创建 DeepSeek LLM 实例"""
     return ChatOpenAI(
-        model=config.deepseek_model_name,
+        model=deepseek_model_name,
         api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
-        base_url=config.deepseek_api_base,
+        base_url=deepseek_api_base,
         temperature=0.3,
     )
 
 
 # ═══════════════════════════════════════════
-# Tool 定义
+# Tools
 # ═══════════════════════════════════════════
 
 @tool
@@ -78,22 +84,19 @@ def analyze_dimension(dimension_name: str, resume_info: str, jd_info: str) -> st
     dimension_name 可选: skill_match, experience, tech_depth
     返回 JSON: {dimension, score, analysis, suggestions}"""
     llm = _get_llm()
-
-    dimension_prompts = {
+    prompts = {
         "skill_match": "对比简历技能和 JD 技能要求，评估匹配度。关注：技术栈重叠、技能数量、技能等级。按 1-10 打分。",
         "experience": "对比简历工作/项目经历和 JD 职责要求，评估经验相关性。关注：行业匹配、职责相似度、项目复杂度。按 1-10 打分。",
         "tech_depth": "评估简历中技术掌握的深度和广度 vs JD 的要求。关注：技术使用年限、项目中的技术角色、技术广度。按 1-10 打分。",
     }
-    guidance = dimension_prompts.get(dimension_name, "按 1-10 打分并给出理由和建议。")
-
+    guidance = prompts.get(dimension_name, "按 1-10 打分并给出理由和建议。")
     prompt = f"""{guidance}
 
 简历信息：{resume_info[:4000]}
 
 JD 信息：{jd_info[:4000]}
 
-只返回 JSON，不要其他内容：
-{{"dimension": "{dimension_name}", "score": 8.5, "analysis": "详细分析，150字左右", "suggestions": ["具体建议1", "具体建议2", "具体建议3"]}}"""
+只返回 JSON：{{"dimension": "{dimension_name}", "score": 8.5, "analysis": "详细分析", "suggestions": ["建议1", "建议2", "建议3"]}}"""
     try:
         resp = llm.invoke(prompt)
         return resp.content
@@ -106,23 +109,19 @@ def check_ats_keywords(resume_text: str, jd_keywords_json: str) -> str:
     """检查 JD 关键词在简历中的命中情况。输入简历原文和 JD 关键词 JSON，
     返回命中/缺失关键词及覆盖率。"""
     try:
-        keywords_data = json.loads(jd_keywords_json)
-        all_keywords = keywords_data.get("keywords", [])
-        if not all_keywords:
-            all_keywords = keywords_data.get("required_skills", []) + keywords_data.get("preferred_skills", [])
+        kw_data = json.loads(jd_keywords_json)
+        all_kw = kw_data.get("keywords", [])
+        if not all_kw:
+            all_kw = kw_data.get("required_skills", []) + kw_data.get("preferred_skills", [])
     except (json.JSONDecodeError, KeyError):
-        all_keywords = []
+        all_kw = []
 
     resume_lower = resume_text.lower()
-    matched, missing = [], []
-    for kw in all_keywords:
-        if kw.lower() in resume_lower:
-            matched.append(kw)
-        else:
-            missing.append(kw)
-
-    total = len(all_keywords)
+    matched = [kw for kw in all_kw if kw.lower() in resume_lower]
+    missing = [kw for kw in all_kw if kw.lower() not in resume_lower]
+    total = len(all_kw)
     hit_rate = round(len(matched) / total * 100, 1) if total > 0 else 0
+
     return json.dumps({
         "matched": matched,
         "missing": missing,
@@ -134,18 +133,16 @@ def check_ats_keywords(resume_text: str, jd_keywords_json: str) -> str:
 @tool
 def generate_final_report(all_scores_json: str) -> str:
     """汇总所有维度评分和分析结果，生成最终综合报告。
-    all_scores_json 是包含各维度结果的 JSON 字符串。
-    返回完整的结构化分析报告 JSON。"""
+    all_scores_json 是包含各维度结果的 JSON 字符串。返回完整报告 JSON。"""
     llm = _get_llm()
-    weights = config.scoring_weights
     prompt = f"""以下是各维度的评分结果，请生成最终分析报告。
 
-维度权重：{json.dumps(weights, ensure_ascii=False)}
+维度权重：{json.dumps(scoring_weights, ensure_ascii=False)}
 
 各维度结果：
 {all_scores_json}
 
-请按以下 JSON 格式返回完整报告（只返回 JSON，不要其他内容）：
+请按以下 JSON 格式返回完整报告（只返回 JSON）：
 {{
     "scores": {{
         "skill_match": {{"name": "技能匹配度", "score": 8.5, "weight": 0.30, "analysis": "...", "suggestions": ["..."]}},
@@ -154,14 +151,11 @@ def generate_final_report(all_scores_json: str) -> str:
         "ats_keywords": {{"name": "关键词/ATS", "score": 6.0, "weight": 0.15, "analysis": "...", "matched": ["..."], "missing": ["..."]}},
         "overall_impression": {{"name": "综合印象", "score": 9.0, "weight": 0.10, "analysis": "评估整体结构、表达、亮点", "suggestions": ["..."]}}
     }},
-    "overall_score": 78.0,
     "summary": "200字以内的综合分析总结"
 }}
 
-注意：
-- 请根据已有维度结果和权重计算 overall_score（加权平均 × 10）
-- overall_impression 维度需要你从简历整体结构、语言表达、亮点突出等方面评估
-- 所有 suggestions 必须具体、可操作，针对简历内容提出实际修改建议"""
+注意：不需要返回 overall_score 字段，评分汇总由代码计算。
+所有 suggestions 必须具体、可操作，针对简历内容提出实际修改建议。"""
     try:
         resp = llm.invoke(prompt)
         return resp.content
@@ -170,12 +164,11 @@ def generate_final_report(all_scores_json: str) -> str:
 
 
 # ═══════════════════════════════════════════
-# ResumeAgent 主类
+# ResumeAgent
 # ═══════════════════════════════════════════
 
 class ResumeAgent:
-    def __init__(self, on_step: Callable | None = None):
-        self.llm = _get_llm()
+    def __init__(self):
         self.tools = [
             extract_resume_info,
             extract_jd_requirements,
@@ -183,16 +176,19 @@ class ResumeAgent:
             check_ats_keywords,
             generate_final_report,
         ]
-        self.on_step = on_step
 
         self.graph = create_agent(
-            model=self.llm,
+            model=_get_llm(),
             tools=self.tools,
-            system_prompt=config.resume_agent_system_prompt,
+            system_prompt=resume_agent_system_prompt,
         )
 
-    def analyze(self, resume_text: str, jd_text: str) -> dict:
-        """执行分析，通过 stream 捕获中间步骤，返回完整报告 dict"""
+    def analyze(self, resume_text: str, jd_text: str) -> Generator[dict, None, dict]:
+        """执行分析，yield 每个中间步骤，return 最终报告。
+
+        Fix #1: 只 stream 一次，最后一帧即为完整最终状态（不再 invoke）。
+        Fix #3: overall_score 由 Python 确定性计算，不依赖 LLM。
+        """
         user_message = (
             f"请分析以下简历和职位描述的匹配度：\n\n"
             f"=== 简历 ===\n{resume_text[:10000]}\n\n"
@@ -200,33 +196,67 @@ class ResumeAgent:
         )
         inputs = {"messages": [{"role": "user", "content": user_message}]}
 
-        # 用 stream 捕获中间步骤
-        for chunk in self.graph.stream(inputs, stream_mode="updates"):
-            if self.on_step:
-                for node_name, node_output in chunk.items():
-                    self.on_step({"node": node_name, "output": node_output})
+        prev_msg_count = 1  # 初始消息数（user message）
+        final_state = None
 
-        # 获取最终结果
-        final_state = self.graph.invoke(inputs)
-        messages = final_state.get("messages", [])
-        output = messages[-1].content if messages else ""
+        for chunk in self.graph.stream(inputs, stream_mode="values"):
+            final_state = chunk
+            messages = chunk.get("messages", [])
+            new_msgs = messages[prev_msg_count:]
 
-        # 从输出中提取 JSON
+            for msg in new_msgs:
+                if isinstance(msg, AIMessage) and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        yield {"type": "tool_start", "tool": tc.get("name", "?"), "args": str(tc.get("args", {}))[:150]}
+                elif isinstance(msg, ToolMessage):
+                    yield {"type": "tool_end", "tool": getattr(msg, "name", "tool"), "preview": str(msg.content)[:200]}
+                elif isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                    yield {"type": "model_msg", "content": msg.content[:200]}
+
+            prev_msg_count = len(messages)
+
+        # 最终状态已在最后一次 values 中
+        output = final_state["messages"][-1].content if final_state else ""
+
+        # 提取 JSON 报告
+        report = self._parse_report(output)
+
+        # Fix #3: 用 Python 确定性计算 overall_score
+        report = self._recalc_overall_score(report)
+
+        yield {"type": "done", "report": report}
+
+    def _parse_report(self, output: str) -> dict:
         try:
             json_match = re.search(r"\{[\s\S]*\}", output)
             if json_match:
                 return json.loads(json_match.group())
         except (json.JSONDecodeError, AttributeError):
             pass
+        return {"scores": {}, "overall_score": 0, "summary": output, "raw": True}
 
-        return {
-            "scores": {},
-            "overall_score": 0,
-            "summary": output,
-            "raw": True
-        }
+    def _recalc_overall_score(self, report: dict) -> dict:
+        """代码计算 overall_score，不信任 LLM 的算术"""
+        scores = report.get("scores", {})
+        if not scores:
+            return report
+
+        weighted_sum = 0
+        for key, dim_data in scores.items():
+            if isinstance(dim_data, dict) and "score" in dim_data:
+                score = float(dim_data["score"])
+                weight = float(dim_data.get("weight", scoring_weights.get(key, 0)))
+                weighted_sum += score * weight
+
+        report["overall_score"] = round(weighted_sum * 10, 1)
+        if not report.get("summary"):
+            report["summary"] = ""
+        return report
 
 
+# ═══════════════════════════════════════════
+# 自测
+# ═══════════════════════════════════════════
 if __name__ == "__main__":
     test_resume = """
     张三 | 高级后端工程师 | 5年经验
@@ -252,14 +282,21 @@ if __name__ == "__main__":
     5. 熟悉 Docker、Kubernetes
     """
 
-    print("DEEPSEEK_API_KEY =", os.environ.get("DEEPSEEK_API_KEY", "未设置")[:8] + "..." if os.environ.get("DEEPSEEK_API_KEY") else "未设置")
+    print("DEEPSEEK_API_KEY =",
+          (os.environ.get("DEEPSEEK_API_KEY", "")[:8] + "...") if os.environ.get("DEEPSEEK_API_KEY") else "未设置")
 
-    def on_step(step):
-        node = step.get("node", "?")
-        print(f"[Agent Node] {node}")
+    agent = ResumeAgent()
+    print("开始分析...\n")
 
-    agent = ResumeAgent(on_step=on_step)
-    print("开始分析...")
-    report = agent.analyze(test_resume, test_jd)
+    final_report = None
+    for step in agent.analyze(test_resume, test_jd):
+        if step["type"] == "done":
+            final_report = step["report"]
+        else:
+            print(f"  [{step['type']}] {step.get('tool', step.get('content', ''))[:80]}")
+
     print("\n=== 分析报告 ===")
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(f"Overall Score: {final_report.get('overall_score', 'N/A')} / 100")
+    for key, dim in final_report.get("scores", {}).items():
+        print(f"  {dim.get('name', key)}: {dim.get('score', '?')}/10 (×{int(dim.get('weight',0)*100)}%)")
+    print(f"\nSummary: {final_report.get('summary', 'N/A')[:200]}")
