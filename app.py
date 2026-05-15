@@ -8,7 +8,7 @@ from src import config
 
 
 st.set_page_config(
-    page_title="Resume Agent — RAG + Memory",
+    page_title="MemoCV",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -155,14 +155,13 @@ with st.sidebar:
 
     st.markdown("---")
     analyze_btn = st.button("🚀 开始分析", disabled=st.session_state.analyzing)
-    st.caption("Powered by DeepSeek · RAG + Memory")
+    st.caption("Powered by DeepSeek")
 
 
 # ═══════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════
-st.markdown('<p class="hero-title">Resume Agent</p>', unsafe_allow_html=True)
-st.markdown('<p class="hero-sub">RAG + Memory · 10 Tools · 3 Modes</p>', unsafe_allow_html=True)
+st.markdown('<p class="hero-title">MemoCV</p>', unsafe_allow_html=True)
 st.divider()
 
 # ── JD 搜索结果 ──
@@ -312,8 +311,5 @@ elif not st.session_state.report and not st.session_state.analyzing and not st.s
             <p style="font-size:4rem;margin:0">📋</p>
             <p style="color:#6b7280;font-size:1.1rem;margin-top:16px;">
                 上传简历 PDF<br>可选：粘贴 JD / 搜索岗位 / 导入 GitHub
-            </p>
-            <p style="color:#4b5563;font-size:0.82rem;">
-                10 Tools · RAG 检索 · SQLite Memory · 5 维评分
             </p>
         </div>""", unsafe_allow_html=True)

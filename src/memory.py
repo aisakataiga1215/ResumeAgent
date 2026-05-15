@@ -161,8 +161,10 @@ class KnowledgeBase:
 
 def get_checkpointer() -> SqliteSaver:
     """创建 SQLite 持久化 checkpointer"""
+    import sqlite3
     os.makedirs(os.path.dirname(sqlite_db_path), exist_ok=True)
-    return SqliteSaver.from_conn_string(sqlite_db_path)
+    conn = sqlite3.connect(sqlite_db_path, check_same_thread=False)
+    return SqliteSaver(conn)
 
 
 # ═══════════════════════════════════════════
