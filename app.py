@@ -247,7 +247,7 @@ if st.session_state.analyzing and not st.session_state.report:
                     log_lines.append(msg)
                     try:
                         data = json.loads(step.get("preview", ""))
-                        if data.get("score"):
+                        if isinstance(data, dict) and data.get("score"):
                             log_lines.append(f"   → {data.get('dimension','')}: {data['score']}/10")
                     except Exception:
                         pass

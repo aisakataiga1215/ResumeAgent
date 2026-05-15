@@ -83,6 +83,9 @@ JD 列表：
     try:
         resp = llm.invoke(prompt)
         ranked = json.loads(resp.content)
+        # LLM 可能直接返回列表，统一转为 {"ranked": [...]}
+        if isinstance(ranked, list):
+            ranked = {"ranked": ranked}
         # 把原始 JD 信息合并回去
         for item in ranked.get("ranked", []):
             idx = item.get("index", 0)
