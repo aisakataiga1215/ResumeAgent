@@ -1,4 +1,4 @@
-import os, json
+import os, json, time
 import streamlit as st
 from src.pdf_parser import extract_text_from_pdf
 from src.agent import ResumeAgent
@@ -230,7 +230,8 @@ if st.session_state.analyzing and not st.session_state.report:
 
         with st.status("🤔 Agent 启动...", expanded=True) as status:
             log_lines = []
-            for step in agent.analyze(resume, jd_text=jd, session_id="streamlit"):
+            session_id = f"run_{int(time.time())}"
+            for step in agent.analyze(resume, jd_text=jd, session_id=session_id):
                 if step["type"] == "tool_start":
                     msg = f"🔧 {step['tool']}"
                     log_lines.append(msg)
