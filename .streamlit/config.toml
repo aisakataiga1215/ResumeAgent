@@ -1,6 +1,2 @@
 [server]
-fileWatcherType = "poll"
-
-[watcher]
-# 避免 transformers/torch 等重型库被文件监控器扫描
-fileWatcherType = "poll"
+fileWatcherType = "none"
