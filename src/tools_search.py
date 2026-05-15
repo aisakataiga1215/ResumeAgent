@@ -2,8 +2,11 @@
 JD 实时搜索工具
 - search_jobs_online: DuckDuckGo 搜索招聘岗位
 - rank_jds_by_match: 对搜索结果按简历匹配度排序
+- fetch_jd_from_url: 从URL抓取完整JD内容
 """
 import json
+import re
+import requests
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from duckduckgo_search import DDGS
@@ -89,6 +92,29 @@ JD 列表：
         return json.dumps(ranked, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+def fetch_jd_from_url(url: str) -> str:
+    """从 URL 抓取页面内容，提取 JD 文本。使用简单的 HTML 清洗。"""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.encoding = resp.apparent_encoding or "utf-8"
+
+        # 简单 HTML 清洗：移除 script/style/tags
+        html = resp.text
+        for tag in ["script", "style", "nav", "footer", "header"]:
+            html = re.sub(rf"<{tag}[^>]*>.*?</{tag}>", "", html, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", "\n", html)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+
+        # 截取合理长度（前8000字符）
+        return text[:8000].strip()
+    except Exception as e:
+        return f"[获取失败] {e}"
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import os, json, time
 import streamlit as st
 from src.pdf_parser import extract_text_from_pdf
 from src.agent import ResumeAgent
-from src.tools_search import search_jobs_online, rank_jds_by_match
+from src.tools_search import search_jobs_online, rank_jds_by_match, fetch_jd_from_url
 from src.tools_github import fetch_github_repos, generate_star_summary
 from src import config
 
@@ -179,7 +179,13 @@ if st.session_state.searched_jds and not st.session_state.report:
                     <span style="color:#9ca3af;font-size:0.85rem;">{snippet}</span>
                 </div>""", unsafe_allow_html=True)
                 if st.button(f"📌 选择此岗位", key=f"select_jd_{i}"):
-                    st.session_state.jd_text = snippet
+                    url = jd.get("url", "")
+                    if url:
+                        with st.spinner("正在获取完整 JD..."):
+                            full_jd = fetch_jd_from_url(url)
+                            st.session_state.jd_text = full_jd
+                    else:
+                        st.session_state.jd_text = snippet
                     st.session_state.selected_jd = jd
                     st.rerun()
     else:
