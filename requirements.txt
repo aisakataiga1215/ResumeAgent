@@ -63,7 +63,7 @@ loguru>=0.7.2
 # GitHub API 客户端（获取用户仓库、项目信息）
 PyGithub>=2.3
 # DuckDuckGo 搜索（JD 实时搜索，免费无需 API Key）
-duckduckgo-search>=6.0
+ddgs>=6.0
 # LangGraph SQLite 持久化（Episodic Memory）
 langgraph-checkpoint-sqlite>=2.0
 # 本地 Embedding 模型（Chroma/Qdrant 知识库向量化，无需外部 API）

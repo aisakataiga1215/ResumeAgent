@@ -9,7 +9,7 @@ import re
 import requests
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 from src.config import deepseek_model_name, deepseek_api_base, jd_search_max_results
 import os
